@@ -126,21 +126,26 @@ def mnist(
 
 
 @register
-def pascal_voc_object_categories(query: Optional[Union[int, str]] = None) -> Union[int, str, List[str]]:
+def pascal_voc_object_categories(
+    categories: Optional[List[str]] = None, 
+    query: Optional[Union[int, str]] = None) -> Union[int, str, List[str]]:
     """PASCAL VOC dataset class names.
     """
 
-    categories = [
-        'aeroplane', 'bicycle', 'bird', 'boat',
-        'bottle', 'bus', 'car', 'cat', 'chair',
-        'cow', 'diningtable', 'dog', 'horse',
-        'motorbike', 'person', 'pottedplant',
-        'sheep', 'sofa', 'train', 'tvmonitor']
-        
-    if query is None:
-        return categories
+    if categories is None:
+        cat = [
+            'aeroplane', 'bicycle', 'bird', 'boat',
+            'bottle', 'bus', 'car', 'cat', 'chair',
+            'cow', 'diningtable', 'dog', 'horse',
+            'motorbike', 'person', 'pottedplant',
+            'sheep', 'sofa', 'train', 'tvmonitor']
     else:
-        for idx, val in enumerate(categories):
+        cat = categories
+ 
+    if query is None:
+        return cat
+    else:
+        for idx, val in enumerate(cat):
             if isinstance(query, int) and idx == query:
                 return val
             elif val == query:
@@ -203,11 +208,12 @@ def pascal_voc_classification(
     split: str,
     data_dir: str,
     year: int = 2007,
+    categories: Optional[List[str]] = None,
     transform: Optional[Callable] = None,
     target_transform: Optional[Callable] = None) -> Dataset:
     """PASCAL VOC dataset.
     """
 
-    object_categories = pascal_voc_object_categories()
+    object_categories = pascal_voc_object_categories(categories=categories)
     dataset = 'VOC' + str(year)
     return VOC_Classification(data_dir, dataset, split, object_categories, transform, target_transform)
