@@ -4,7 +4,7 @@ from typing import Tuple, List, Dict, Union, Callable, Optional
 
 import numpy as np
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, Sampler
 from torchvision import datasets, transforms
 from PIL import Image
 from nest import register
@@ -69,6 +69,8 @@ def fetch_data(
     test_shuffle: bool = False,
     train_augmentation: dict = {},
     test_augmentation: dict = {},
+    train_sampler: Optional[Callable[[Dataset], Sampler]] = None,
+    test_sampler: Optional[Callable[[Dataset], Sampler]] = None,
     batch_size: int = 1,
     test_batch_size: Optional[int] = None) -> Tuple[List[Tuple[str, DataLoader]], List[Tuple[str, DataLoader]]]:
     """Return data loader list.
@@ -78,21 +80,31 @@ def fetch_data(
     train_transform = transform(augmentation=train_augmentation) if transform else None
     train_loader_list = []
     for split in train_splits:
-        train_loader_list.append((split, DataLoader(
-            dataset = dataset(
-                split = split, 
+        dataset_inst = dataset(
+                split = split,
                 transform = train_transform,
-                target_transform = target_transform),
+                target_transform = target_transform)
+        sampler = train_sampler(dataset=dataset_inst) if train_sampler else None
+        shuffle = False if train_sampler else train_shuffle
+        train_loader_list.append((split, DataLoader(
+            dataset = dataset_inst,
             batch_size = batch_size,
             num_workers = num_workers,
             pin_memory = pin_memory,
             drop_last=drop_last,
-            shuffle = train_shuffle)))
+            shuffle = shuffle,
+            sampler = sampler)))
     
     # fetch testing data
     test_transform = transform(augmentation=test_augmentation) if transform else None
     test_loader_list = []
     for split in test_splits:
+        dataset_inst = dataset(
+                split = split,
+                transform = test_transform,
+                target_transform = target_transform)
+        sampler = test_sampler(dataset=dataset_inst) if test_sampler else None
+        shuffle = False if test_sampler else test_shuffle
         test_loader_list.append((split, DataLoader(
             dataset = dataset(
                 split = split, 
@@ -102,7 +114,8 @@ def fetch_data(
             num_workers = num_workers,
             pin_memory = pin_memory,
             drop_last=drop_last,
-            shuffle = test_shuffle)))
+            shuffle = test_shuffle,
+            sampler = test_sampler)))
 
     return train_loader_list, test_loader_list
 
@@ -151,6 +164,16 @@ def pascal_voc_object_categories(
             elif val == query:
                 return idx
 
+@register
+def pascal_voc_categories_from_file(
+    filename: str) -> Union[int, str, List[str]]:
+    """ PASCAL VOC dataset class from file.
+    """
+
+    with open(filename) as f:
+        classes = f.readlines()
+    classes = [x.strip() for x in classes]
+    return classes
 
 class VOC_Classification(Dataset):
     """Dataset for PASCAL VOC classification.
@@ -168,6 +191,15 @@ class VOC_Classification(Dataset):
         self.target_transform = target_transform
         self.classes = classes
         self.image_labels = self._read_annotations(self.split)
+        # As we can select the classes we want to work with, some images might end up without classes
+        # Remove images without labels
+        images_with_labels = []
+        for idx in range(len(self.image_labels)):
+            filename, target = self.image_labels[idx]
+            max_index = target.argmax()
+            if target[max_index] > -1:
+                images_with_labels.append((filename, target))
+        self.image_labels = images_with_labels
 
     def _read_annotations(self, split):
         class_labels = OrderedDict()
@@ -208,12 +240,15 @@ def pascal_voc_classification(
     split: str,
     data_dir: str,
     year: int = 2007,
-    categories: Optional[List[str]] = None,
+    categories: Optional[Union[List[str],dict]] = None,
     transform: Optional[Callable] = None,
     target_transform: Optional[Callable] = None) -> Dataset:
     """PASCAL VOC dataset.
     """
 
-    object_categories = pascal_voc_object_categories(categories=categories)
+    if type(categories) is dict:
+        object_categories = pascal_voc_categories_from_file(**categories)
+    else:
+        object_categories = pascal_voc_object_categories(categories=categories)
     dataset = 'VOC' + str(year)
     return VOC_Classification(data_dir, dataset, split, object_categories, transform, target_transform)
