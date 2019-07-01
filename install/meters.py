@@ -47,9 +47,15 @@ def topk_meter(ctx: Context, train_ctx: Context, k: int = 1) -> float:
     def accuracy(output, target, k=1):
         batch_size = target.size(0)
 
+        if target.size() == output.size():
+            _, targ = target.topk(1, 1, True, True)
+            targ = targ.t()
+        else:
+            targ = target
+
         _, pred = output.topk(k, 1, True, True)
         pred = pred.t()
-        correct = pred.eq(target.view(1, -1).expand_as(pred))
+        correct = pred.eq(targ.view(1, -1).expand_as(pred))
 
         correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
         return correct_k.mul_(100.0 / batch_size)

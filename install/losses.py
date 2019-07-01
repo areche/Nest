@@ -1,6 +1,7 @@
 import torch.nn.functional as F
-from typing import Optional
+from typing import Optional, List
 from torch import Tensor
+import torch
 from nest import register
 
 
@@ -8,21 +9,21 @@ from nest import register
 def cross_entropy_loss(
     input: Tensor, 
     target: Tensor,
-    weight: Optional[Tensor] = None,
+    weight: Optional[List[float]] = None,
     size_average: bool = True,
     ignore_index: int = -100,
     reduce: bool = True) -> Tensor:
     """Cross entropy loss.
     """
 
-    return F.cross_entropy(input, target, weight, size_average, ignore_index, reduce)
+    return F.cross_entropy(input, target, torch.cuda.FloatTensor(weight), size_average, ignore_index, reduce)
 
 
 @register
 def multilabel_soft_margin_loss(
     input: Tensor, 
     target: Tensor,
-    weight: Optional[Tensor] = None,
+    weight: Optional[List[float]] = None,
     size_average: bool = True,
     reduce: bool = True,
     difficult_samples: bool = False) -> Tensor:
@@ -38,5 +39,8 @@ def multilabel_soft_margin_loss(
         gt_label[gt_label == -1] = 0
     else:
         gt_label = target
+
+    if weight is not None:
+        weight = torch.cuda.FloatTensor(weight)
         
     return F.multilabel_soft_margin_loss(input, gt_label, weight, size_average, reduce)

@@ -14,6 +14,7 @@ def checkpoint(
     train_ctx: Context, 
     save_dir: str, 
     save_step: Optional[int] = None,
+    save_on: Optional[List[str]] = None,
     save_final: bool = False,
     save_latest: bool = False,
     save_all: bool = False) -> None:
@@ -30,11 +31,19 @@ def checkpoint(
     # helper function
     def save_current_train_ctx(save_name):
         save_path = os.path.join(save_dir, save_name)
-        torch.save(dict(
-            epoch_idx = train_ctx.epoch_idx + 1,
-            batch_idx = train_ctx.batch_idx + 1,
-            model = train_ctx.model.state_dict(),
-            optimizer = train_ctx.optimizer.state_dict()), save_path)
+        if 'scheduler' in train_ctx and train_ctx.scheduler is not None:
+            torch.save(dict(
+                epoch_idx = train_ctx.epoch_idx + 1,
+                batch_idx = train_ctx.batch_idx + 1,
+                model = train_ctx.model.state_dict(),
+                optimizer = train_ctx.optimizer.state_dict(),
+                scheduler = train_ctx.scheduler.state_dict()), save_path)
+        else:
+            torch.save(dict(
+                epoch_idx = train_ctx.epoch_idx + 1,
+                batch_idx = train_ctx.batch_idx + 1,
+                model = train_ctx.model.state_dict(),
+                optimizer = train_ctx.optimizer.state_dict()), save_path)
         train_ctx.logger.info('checkpoint created at %s' % save_path)
 
     # checkpoint conditions
@@ -46,7 +55,19 @@ def checkpoint(
         save_current_train_ctx('model_final.pt')
     if save_latest:
         save_current_train_ctx('model_latest.pt')
-
+    if save_on is not None:
+        if not 'saved_metrics' in train_ctx:
+            train_ctx.saved_metrics = train_ctx.metrics
+        for condition in save_on:
+            compare, metric = condition.split(' ',1)
+            if compare == '>':
+                if train_ctx.metrics[metric] >= train_ctx.saved_metrics[metric]:
+                    save_current_train_ctx('model_best_%s.pt' % metric)
+                    train_ctx.saved_metrics[metric] = train_ctx.metrics[metric]
+            elif compare == '<':
+                if train_ctx.metrics[metric] <= train_ctx.saved_metrics[metric]:
+                    save_current_train_ctx('model_best_%s.pt' % metric)
+                    train_ctx.saved_metrics[metric] = train_ctx.metrics[metric]
 
 @register
 def vis_trend(ctx: Context, train_ctx: Context, server: str, env: str, port: int = 80) -> None:

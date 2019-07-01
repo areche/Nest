@@ -25,6 +25,7 @@ def network_trainer(
     model: nn.Module,
     criterion: Callable[[Tensor, Tensor], Tensor],
     optimizer: Callable[[Iterable], optim.Optimizer],
+    scheduler: Optional[Callable[[optim.Optimizer], optim.lr_scheduler._LRScheduler]] = None,
     parameter: Optional[Callable] = None,
     meters: Optional[Dict[str, Callable[[Context], Any]]] = None,
     hooks: Optional[Dict[str, List[Callable[[Context], None]]]] = None,
@@ -35,7 +36,8 @@ def network_trainer(
     device: str = 'cuda',
     use_data_parallel: bool = True,
     use_cudnn_benchmark: bool = True,
-    random_seed: int = 999) -> Context:
+    random_seed: int = 999,
+    iter_size: int = 1) -> Context:
     """Network trainer.
     """
 
@@ -90,6 +92,10 @@ def network_trainer(
     params = model.parameters() if parameter is None else parameter(model)
     optimizer = optimizer(params)
 
+    # Setup the scheduler if necessary
+    if scheduler is not None:
+        scheduler = scheduler(optimizer)
+
     # resume checkpoint
     start_epoch_idx = 0
     start_batch_idx = 0
@@ -100,6 +106,8 @@ def network_trainer(
         start_batch_idx = checkpoint['batch_idx']
         model.load_state_dict(checkpoint['model'])
         optimizer.load_state_dict(checkpoint['optimizer'])
+        if scheduler is not None and 'scheduler' in checkpoint:
+            scheduler.load_state_dict(checkpoint['scheduler'])
         logger.info('checkpoint loaded (epoch %d)' % start_epoch_idx)
 
     # create training context
@@ -108,6 +116,7 @@ def network_trainer(
         is_train = True,
         model = model,
         optimizer = optimizer,
+        scheduler = scheduler,
         max_epoch = max_epoch,
         epoch_idx = start_epoch_idx,
         batch_idx = start_batch_idx,
@@ -117,7 +126,8 @@ def network_trainer(
         loss = Tensor(),
         metrics = dict(),
         state_dicts = [],
-        logger = logger)
+        logger = logger,
+        iter_size = iter_size)
 
     # helper func for executing hooks
     def run_hooks(hook_type):
@@ -136,6 +146,7 @@ def network_trainer(
         # set model status
         if is_train:
             model.train() 
+            optimizer.zero_grad()
         else:
             model.eval()
 
@@ -167,9 +178,10 @@ def network_trainer(
 
             # update model parameters
             if is_train:
-                optimizer.zero_grad()
                 ctx.loss.backward()
-                optimizer.step()
+                if (batch_idx+1) % ctx.iter_size == 0:
+                    optimizer.step()
+                    optimizer.zero_grad()
 
             run_hooks('on_end_batch')
             ctx.batch_idx = 0
@@ -182,6 +194,9 @@ def network_trainer(
     for epoch_idx in progress_bar(range(ctx.epoch_idx, max_epoch), ascii=True, unit='epoch'):
         ctx.epoch_idx = epoch_idx
         run_hooks('on_start_epoch')
+
+        if scheduler is not None:
+            scheduler.step()
 
         # training
         for split, loader in train_loaders:
